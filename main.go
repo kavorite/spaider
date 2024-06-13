@@ -58,19 +58,20 @@ func main() {
 		colly.AllowedDomains(allowedDomain),
 		colly.UserAgent("github.com/kavorite/spaider"),
 		colly.MaxBodySize(1<<19), // according to the HTTP Archive, 99% of text documents should be under this limit
+		colly.Async(),
 	)
 
 	c.OnRequest(func(r *colly.Request) {
-		fmt.Fprintf(os.Stderr, "%s:\n", r.URL.String())
+		fmt.Fprintln(os.Stderr, r.URL.String())
 	})
 
 	c.OnResponse(func(r *colly.Response) {
 		path := r.Request.URL.Path
-		mime := r.Headers.Get("Content-Type")
+		mime := strings.ToLower(r.Headers.Get("Content-Type"))
 		if !isAllowedExtension(path) || !isAllowedContentType(mime) || !strings.HasPrefix(path, startPath) {
 			return
 		}
-		fmt.Printf("%s:\n", r.Request.URL.String())
+		fmt.Printf("# %s:\n\n", r.Request.URL.String())
 		text := string(r.Body)
 
 		if strings.HasSuffix(r.Request.URL.Path, ".html") || strings.Contains(mime, "html") {
