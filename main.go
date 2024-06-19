@@ -110,7 +110,8 @@ func main() {
 	options := []colly.CollectorOption{
 		colly.AllowedDomains(allowedDomain),
 		colly.UserAgent("github.com/kavorite/spaider"),
-		colly.MaxBodySize(1 << 19), // according to the HTTP Archive, 99% of text documents should be under this limit
+		colly.MaxBodySize(1 << 19), /* according to the HTTP Archive, over 99%
+		of text documents should be under this limit */
 	}
 	if !synchronous {
 		options = append(options, colly.Async())
