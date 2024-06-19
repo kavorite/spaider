@@ -75,6 +75,7 @@ var (
 	converter     = md.NewConverter("", true, nil)
 	pathRegex     *regexp.Regexp
 	paragraph     docset = docset{set: make(map[[16]byte]struct{}, 8192)}
+	verbose       bool
 	pathMatch     string
 	startURL      string
 	allowedDomain string
@@ -85,6 +86,7 @@ var (
 
 func main() {
 	flag.Var(&allowedExts, "exts", fmt.Sprintf("Allowed file extensions. Defaults to %s.", defaultExts))
+	flag.BoolVar(&verbose, "verbose", false, "Print visited URLs")
 	flag.StringVar(&pathMatch, "glob", "", "Pattern to match paths")
 	flag.BoolVar(&synchronous, "sync", false, "Make output deterministic by crawling pages synchronously")
 	flag.Parse()
@@ -115,9 +117,11 @@ func main() {
 	}
 	c := colly.NewCollector(options...)
 
-	c.OnRequest(func(r *colly.Request) {
-		fmt.Fprintln(os.Stderr, r.URL.String())
-	})
+	if verbose {
+		c.OnRequest(func(r *colly.Request) {
+			fmt.Fprintln(os.Stderr, r.URL.String())
+		})
+	}
 
 	c.OnResponse(func(r *colly.Response) {
 		path := r.Request.URL.Path
