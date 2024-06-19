@@ -1,9 +1,9 @@
 # What is this?
 
 This program crawls a domain and tries to find all of the documents on it for
-conditioning an AI. Currently that just means it takes anything with a `text`
+conditioning an AI. Currently, that means it takes anything with a `text/*`
 content type that is under 500KiB, and if HTML, converts it to markdown, before
-writing it to standard output. 
+writing it to standard output. See [changelog.md](changelog.md) for added bells and whistles.
 
 # How do I use this?
 
@@ -27,10 +27,9 @@ size of the website as navigable from the start page, but the size of its output
 depends only on the size of the path hierarchy found under the chosen index.
 
 Big shoutout to [httparchive.org] for making all data from their crawls
-publicly accessible under Google BigQuery, because otherwise getting the 99th
-percentile of the size of an HTML payload would probably be pretty difficult.
-It wasn't 500KiB, it was 300K or so, but I just rounded up to the nearest power
-of two to be safe.
+publicly accessible under Google BigQuery, because otherwise, getting the 99th
+percentile of the size of an HTML payload would be difficult. It wasn't 500KiB, 
+it was 300 or so, but I just rounded up to the nearest power of two to be safe.
 
 
 [httparchive.org]: https://httparchive.org/faq#how-do-i-use-bigquery-to-write-custom-queries-over-the-data
