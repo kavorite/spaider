@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+    "regexp"
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/gocolly/colly/v2"
 )
@@ -26,6 +27,8 @@ func (e *extensions) Set(value string) error {
 
 var (
 	converter     = md.NewConverter("", true, nil)
+    pathRegex     *regexp.Regexp
+    pathMatch     string
 	startPath     string
 	startURL      string
 	allowedDomain string
@@ -34,13 +37,11 @@ var (
 )
 
 func main() {
-	flag.StringVar(&startURL, "url", "", "The root URL to start scraping from")
-	flag.Var(&allowedExts, "ext", `File extensions to allow (default: "", ".html", ".md", ".txt", ".rst")`)
+    flag.StringVar(&pathMatch, "glob", "", "Pattern to match paths")
 	flag.Parse()
-
-	if startURL == "" {
-		log.Fatal("Please provide a URL to start scraping from using the -url flag.")
-	}
+    pathRegex = regexp.MustCompile(pathMatch);
+	startURL = flag.Arg(0)
+	fmt.Println(startURL)
 
 	// Use default extensions if none provided
 	if len(allowedExts) == 0 {
@@ -68,7 +69,7 @@ func main() {
 	c.OnResponse(func(r *colly.Response) {
 		path := r.Request.URL.Path
 		mime := strings.ToLower(r.Headers.Get("Content-Type"))
-		if !isAllowedExtension(path) || !isAllowedContentType(mime) || !strings.HasPrefix(path, startPath) {
+		if !isAllowedExtension(path) || !isAllowedContentType(mime) || !isPathAllowed(path) {
 			return
 		}
 		fmt.Printf("# %s:\n\n", r.Request.URL.String())
@@ -90,6 +91,14 @@ func main() {
 
 	c.Visit(startURL)
 	c.Wait()
+}
+
+func isPathAllowed(path string) bool {
+    if pathRegex != nil {
+        return pathRegex.MatchString(path)
+    } else {
+        return true
+    }
 }
 
 func isAllowedExtension(path string) bool {
