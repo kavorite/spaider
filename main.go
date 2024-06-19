@@ -1,17 +1,63 @@
 package main
 
 import (
+	"crypto/md5"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 
-    "regexp"
+	"regexp"
+
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/gocolly/colly/v2"
 )
+
+type docset struct {
+	set map[[16]byte]struct{}
+	sync.RWMutex
+}
+
+type response struct {
+	name string
+	body string
+}
+
+func (rsp *response) StreamTo(dst io.Writer) {
+	fmt.Fprintf(dst, "# %s:\n\n%s\n\n", rsp.name, rsp.body)
+}
+
+func (s *docset) Add(paragraph string) {
+	s.Lock()
+	s.set[md5.Sum([]byte(paragraph))] = struct{}{}
+	s.Unlock()
+}
+
+func (s *docset) Has(paragraph string) bool {
+	s.RLock()
+	_, ok := s.set[md5.Sum([]byte(paragraph))]
+	s.RUnlock()
+	return ok
+}
+
+func (s *docset) Dedup(document string) string {
+	buffer := strings.Builder{}
+	for i, p := range strings.Split(document, "\n\n") {
+		p = strings.TrimSpace(p)
+		if !s.Has(p) {
+			s.Add(p)
+			if i != 0 {
+				buffer.WriteString("\n\n")
+			}
+			buffer.WriteString(p)
+		}
+	}
+	return strings.TrimSpace(buffer.String())
+}
 
 // Extensions to filter
 type extensions []string
@@ -27,21 +73,26 @@ func (e *extensions) Set(value string) error {
 
 var (
 	converter     = md.NewConverter("", true, nil)
-    pathRegex     *regexp.Regexp
-    pathMatch     string
-	startPath     string
+	pathRegex     *regexp.Regexp
+	paragraph     docset = docset{set: make(map[[16]byte]struct{}, 8192)}
+	pathMatch     string
 	startURL      string
 	allowedDomain string
 	allowedExts   extensions
 	defaultExts   = extensions{"", ".html", ".md", ".txt", ".rst"}
+	synchronous   bool
 )
 
 func main() {
-    flag.StringVar(&pathMatch, "glob", "", "Pattern to match paths")
+	flag.Var(&allowedExts, "exts", fmt.Sprintf("Allowed file extensions. Defaults to %s.", defaultExts))
+	flag.StringVar(&pathMatch, "glob", "", "Pattern to match paths")
+	flag.BoolVar(&synchronous, "sync", false, "Make output deterministic by crawling pages synchronously")
 	flag.Parse()
-    pathRegex = regexp.MustCompile(pathMatch);
+	if len(allowedExts) == 0 {
+		allowedExts = defaultExts
+	}
+	pathRegex = regexp.MustCompile(pathMatch)
 	startURL = flag.Arg(0)
-	fmt.Println(startURL)
 
 	// Use default extensions if none provided
 	if len(allowedExts) == 0 {
@@ -52,15 +103,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to parse URL: %v", err)
 	}
-	startPath = parsedURL.Path
 	allowedDomain = parsedURL.Host
 
-	c := colly.NewCollector(
+	options := []colly.CollectorOption{
 		colly.AllowedDomains(allowedDomain),
 		colly.UserAgent("github.com/kavorite/spaider"),
-		colly.MaxBodySize(1<<19), // according to the HTTP Archive, 99% of text documents should be under this limit
-		colly.Async(),
-	)
+		colly.MaxBodySize(1 << 19), // according to the HTTP Archive, 99% of text documents should be under this limit
+	}
+	if !synchronous {
+		options = append(options, colly.Async())
+	}
+	c := colly.NewCollector(options...)
 
 	c.OnRequest(func(r *colly.Request) {
 		fmt.Fprintln(os.Stderr, r.URL.String())
@@ -72,14 +125,16 @@ func main() {
 		if !isAllowedExtension(path) || !isAllowedContentType(mime) || !isPathAllowed(path) {
 			return
 		}
-		fmt.Printf("# %s:\n\n", r.Request.URL.String())
 		text := string(r.Body)
 
 		if strings.HasSuffix(r.Request.URL.Path, ".html") || strings.Contains(mime, "html") {
 			text = toMarkdown(text)
 		}
-
-		fmt.Println(text)
+		text = paragraph.Dedup(text)
+		if text != "" {
+			resp := response{name: r.Request.URL.String(), body: text}
+			resp.StreamTo(os.Stdout)
+		}
 	})
 
 	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
@@ -94,11 +149,11 @@ func main() {
 }
 
 func isPathAllowed(path string) bool {
-    if pathRegex != nil {
-        return pathRegex.MatchString(path)
-    } else {
-        return true
-    }
+	if pathRegex != nil {
+		return pathRegex.MatchString(path)
+	} else {
+		return true
+	}
 }
 
 func isAllowedExtension(path string) bool {
