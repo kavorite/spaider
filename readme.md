@@ -7,7 +7,8 @@ writing it to standard output.
 
 # How do I use this?
 
-> ⓘ **Note:** To ensure the following works as intended, install Go, and make
+> [!NOTE]
+> To ensure the following works as intended, install Go, and make
 > sure `$GOPATH/bin` is on your path.
 
 ```sh
