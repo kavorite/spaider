@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"net/url"
 	"os"
 	"strings"
@@ -59,56 +58,68 @@ func (s *docset) Dedup(document string) string {
 	return strings.TrimSpace(buffer.String())
 }
 
-// Extensions to filter
-type extensions []string
+type rgxlist []*regexp.Regexp
 
-func (e *extensions) String() string {
-	return fmt.Sprint(*e)
+func (r *rgxlist) Set(value string) error {
+	v, err := regexp.Compile(value)
+	if err != nil {
+		return err
+	}
+	*r = append(*r, v)
+	return nil
 }
 
-func (e *extensions) Set(value string) error {
-	*e = append(*e, value)
+func (s *rgxlist) String() string {
+	return fmt.Sprint(*s)
+}
+
+type strlist []string
+
+func (s *strlist) String() string {
+	return fmt.Sprint(*s)
+}
+
+func (s *strlist) Set(value string) error {
+	*s = append(*s, value)
 	return nil
 }
 
 var (
-	converter     = md.NewConverter("", true, nil)
-	pathRegex     *regexp.Regexp
-	paragraph     docset = docset{set: make(map[[16]byte]struct{}, 8192)}
-	verbose       bool
-	pathMatch     string
-	startURL      string
-	allowedDomain string
-	allowedExts   extensions
-	defaultExts   = extensions{"", ".html", ".md", ".txt", ".rst"}
-	synchronous   bool
+	converter             = md.NewConverter("", true, nil)
+	paragraph      docset = docset{set: make(map[[16]byte]struct{}, 8192)}
+	verbose        bool
+	allowedGlob    rgxlist
+	defaultAllowed         = rgxlist{regexp.MustCompile(".*")}
+	removedGlob    rgxlist = rgxlist{}
+	startURL       string
+	allowedExts    strlist
+	defaultExts    = strlist{"", ".html", ".md", ".txt", ".rst"}
+	synchronous    bool
 )
 
 func main() {
-	flag.Var(&allowedExts, "exts", fmt.Sprintf("Allowed file extensions. Defaults to %s.", defaultExts))
+	flag.Var(&allowedGlob, "glob", "Patterns that match URLs to visit.")
+	flag.Var(&removedGlob, "filt", "Patterns that filter URLs to visit.")
+	flag.Var(&allowedExts, "exts", "File extensions that permit results to be printed.")
 	flag.BoolVar(&verbose, "verbose", false, "Print visited URLs")
-	flag.StringVar(&pathMatch, "glob", "", "Pattern to match paths")
 	flag.BoolVar(&synchronous, "sync", false, "Make output deterministic by crawling pages synchronously")
 	flag.Parse()
 	if len(allowedExts) == 0 {
 		allowedExts = defaultExts
 	}
-	pathRegex = regexp.MustCompile(pathMatch)
 	startURL = flag.Arg(0)
 
+	if len(allowedGlob) == 0 {
+		allowedGlob = rgxlist{regexp.MustCompile(fmt.Sprintf("%s/*", startURL))}
+	}
 	// Use default extensions if none provided
 	if len(allowedExts) == 0 {
 		allowedExts = defaultExts
 	}
 
-	parsedURL, err := url.Parse(startURL)
-	if err != nil {
-		log.Fatalf("Failed to parse URL: %v", err)
-	}
-	allowedDomain = parsedURL.Host
-
 	options := []colly.CollectorOption{
-		colly.AllowedDomains(allowedDomain),
+		colly.URLFilters(allowedGlob...),
+		colly.DisallowedURLFilters(removedGlob...),
 		colly.UserAgent("github.com/kavorite/spaider"),
 		colly.MaxBodySize(1 << 19), /* according to the HTTP Archive, over 99%
 		of text documents should be under this limit */
@@ -127,7 +138,7 @@ func main() {
 	c.OnResponse(func(r *colly.Response) {
 		path := r.Request.URL.Path
 		mime := strings.ToLower(r.Headers.Get("Content-Type"))
-		if !isAllowedExtension(path) || !isAllowedContentType(mime) || !isPathAllowed(path) {
+		if !isAllowedExtension(path) || !isAllowedContentType(mime) {
 			return
 		}
 		text := string(r.Body)
@@ -144,21 +155,27 @@ func main() {
 
 	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		link := e.Attr("href")
-		if _, err := url.Parse(link); err == nil {
-			e.Request.Visit(e.Request.AbsoluteURL(link))
+		absoluteURL := e.Request.AbsoluteURL(link)
+		if absoluteURL == "" {
+			return
+		}
+		if _, err := url.Parse(absoluteURL); err == nil {
+			for _, pattern := range removedGlob {
+				if pattern.MatchString(absoluteURL) {
+					return // Skip this URL
+				}
+			}
+			for _, pattern := range allowedGlob {
+				if !pattern.MatchString(absoluteURL) {
+					return
+				}
+			}
+			e.Request.Visit(absoluteURL)
 		}
 	})
 
 	c.Visit(startURL)
 	c.Wait()
-}
-
-func isPathAllowed(path string) bool {
-	if pathRegex != nil {
-		return pathRegex.MatchString(path)
-	} else {
-		return true
-	}
 }
 
 func isAllowedExtension(path string) bool {
