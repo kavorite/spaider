@@ -85,32 +85,41 @@ func (s *strlist) Set(value string) error {
 }
 
 var (
-	converter             = md.NewConverter("", true, nil)
-	paragraph      docset = docset{set: make(map[[16]byte]struct{}, 8192)}
-	verbose        bool
-	allowedGlob    rgxlist
-	defaultAllowed         = rgxlist{regexp.MustCompile(".*")}
-	removedGlob    rgxlist = rgxlist{}
-	startURL       string
-	allowedExts    strlist
-	defaultExts    = strlist{"", ".html", ".md", ".txt", ".rst"}
-	synchronous    bool
+	converter          = md.NewConverter("", true, nil)
+	paragraph   docset = docset{set: make(map[[16]byte]struct{}, 8192)}
+	verbose     bool
+	allowedGlob rgxlist
+	removedGlob rgxlist
+	startURL    string
+	defaultExts = strlist{"", ".html", ".md", ".txt", ".rst"}
+	synchronous bool
+	allowedExts strlist
+	maxd        int
 )
 
-func main() {
+func init() {
 	flag.Var(&allowedGlob, "glob", "Patterns that match URLs to visit.")
 	flag.Var(&removedGlob, "filt", "Patterns that filter URLs to visit.")
 	flag.Var(&allowedExts, "exts", "File extensions that permit results to be printed.")
+	flag.IntVar(&maxd, "maxd", -1, "Maximum depth.")
 	flag.BoolVar(&verbose, "verbose", false, "Print visited URLs")
-	flag.BoolVar(&synchronous, "sync", false, "Make output deterministic by crawling pages synchronously")
+	flag.BoolVar(&synchronous, "sync", false, "Make output deterministic and limit server load by crawling pages synchronously")
+}
+
+func main() {
 	flag.Parse()
+	startURL = flag.Arg(0)
 	if len(allowedExts) == 0 {
 		allowedExts = defaultExts
 	}
-	startURL = flag.Arg(0)
+
+	parsedURL, err := url.Parse(startURL)
+	if err != nil {
+		panic(fmt.Errorf("fatal: parse start url: %v", err))
+	}
 
 	if len(allowedGlob) == 0 {
-		allowedGlob = rgxlist{regexp.MustCompile(fmt.Sprintf("%s/*", startURL))}
+		allowedGlob = rgxlist{regexp.MustCompile(parsedURL.JoinPath(".*").String())}
 	}
 	// Use default extensions if none provided
 	if len(allowedExts) == 0 {
@@ -121,8 +130,9 @@ func main() {
 		colly.URLFilters(allowedGlob...),
 		colly.DisallowedURLFilters(removedGlob...),
 		colly.UserAgent("github.com/kavorite/spaider"),
-		colly.MaxBodySize(1 << 19), /* according to the HTTP Archive, over 99%
-		of text documents should be under this limit */
+	}
+	if maxd > 0 {
+		options = append(options, colly.MaxDepth(maxd))
 	}
 	if !synchronous {
 		options = append(options, colly.Async())
@@ -162,7 +172,7 @@ func main() {
 		if _, err := url.Parse(absoluteURL); err == nil {
 			for _, pattern := range removedGlob {
 				if pattern.MatchString(absoluteURL) {
-					return // Skip this URL
+					return
 				}
 			}
 			for _, pattern := range allowedGlob {
