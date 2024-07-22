@@ -3,13 +3,12 @@
 This program crawls a domain and tries to find all its documents for
 conditioning an LLM. Currently, that means it takes anything with a `text/*`
 content type that is under 500KiB, and if HTML, converts it to Markdown before
-writing it to standard output. See [changelog.md](changelog.md) for added bells
-and whistles.
+writing it to standard output. 
+
+> [!NOTE]
+> See [changelog.md](changelog.md) for added bells and whistles.
 
 # How do I use this?
-
-> ⓘ **Note:** To ensure the following works as intended, install Go and make
-> sure `$GOPATH/bin` is on your path.
 
 ```sh
 go install github.com/kavorite/spaider
@@ -17,6 +16,10 @@ go install github.com/kavorite/spaider
 spaider https://flax.readthedocs.io/en/latest/ > summary.txt
 # you're now free to upload the summary to an LLM inference platform somewhere
 ```
+
+> [!NOTE]
+> To ensure the above works as intended, install Go and make
+> sure `$GOPATH/bin` is on your path.
 
 # Background
 
